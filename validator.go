@@ -214,11 +214,10 @@ func (mv *Validator) Validate(v interface{}) error {
 
 func (mv *Validator) validateValue(v interface{}, m ErrorMap) error {
 	sv := reflect.ValueOf(v)
-	st := reflect.TypeOf(v)
-	return mv.validateFields(sv, st, m)
+	return mv.validateStruct(sv, m)
 }
 
-func (mv *Validator) validateFields(sv reflect.Value, st reflect.Type, m ErrorMap) error {
+func (mv *Validator) validateStruct(sv reflect.Value, m ErrorMap) error {
 	kind := sv.Kind()
 	if kind == reflect.Ptr && !sv.IsNil() {
 		return mv.validateValue(sv.Elem().Interface(), m)
@@ -227,9 +226,10 @@ func (mv *Validator) validateFields(sv reflect.Value, st reflect.Type, m ErrorMa
 		return ErrUnsupported
 	}
 
-	nfields := sv.NumField()
+	st := sv.Type()
+	nfields := st.NumField()
 	for i := 0; i < nfields; i++ {
-		if err := mv.validateOneField(sv, st, i, m); err != nil {
+		if err := mv.validateField(st.Field(i), sv, m); err != nil {
 			return err
 		}
 	}
@@ -237,13 +237,29 @@ func (mv *Validator) validateFields(sv reflect.Value, st reflect.Type, m ErrorMa
 	return nil
 }
 
-func (mv *Validator) validateOneField(sv reflect.Value, st reflect.Type, idx int, m ErrorMap) error {
-	fieldDef := st.Field(idx)
-	fieldVal := sv.Field(idx)
+// validateField validates the field of sv (struct value) referred to by fieldDef.
+// If fieldDef refers to an anonymous/embedded field,
+// validateField will walk all of the embedded type's fields and validate them on sv.
+func (mv *Validator) validateField(fieldDef reflect.StructField, sv reflect.Value, m ErrorMap) error {
+	fieldVal := sv.FieldByName(fieldDef.Name)
 
 	if fieldDef.Anonymous {
-		// TODO: Support embedded pointer fields
-		return mv.validateFields(fieldVal, fieldDef.Type, m)
+		// No fields to walk if the embedded type is a pointer and it's nil
+		if fieldVal.Type().Kind() == reflect.Ptr && fieldVal.IsNil() {
+			return nil
+		}
+		// deal with an embedded pointer type; we need to get the underlying type's fields.
+		fdType := fieldDef.Type
+		if fdType.Kind() == reflect.Ptr {
+			fdType = fdType.Elem()
+		}
+		for ei := 0; ei < fdType.NumField(); ei++ {
+			efd := fdType.Field(ei)
+			if err := mv.validateField(efd, sv, m); err != nil {
+				return err
+			}
+		}
+
 	}
 
 	fname := fieldDef.Name
