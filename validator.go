@@ -219,10 +219,11 @@ func (mv *Validator) validateValue(v interface{}, m ErrorMap) error {
 }
 
 func (mv *Validator) validateFields(sv reflect.Value, st reflect.Type, m ErrorMap) error {
-	if sv.Kind() == reflect.Ptr && !sv.IsNil() {
+	kind := sv.Kind()
+	if kind == reflect.Ptr && !sv.IsNil() {
 		return mv.validateValue(sv.Elem().Interface(), m)
 	}
-	if sv.Kind() != reflect.Struct && sv.Kind() != reflect.Interface {
+	if kind != reflect.Struct && kind != reflect.Interface {
 		return ErrUnsupported
 	}
 
@@ -238,12 +239,18 @@ func (mv *Validator) validateFields(sv reflect.Value, st reflect.Type, m ErrorMa
 
 func (mv *Validator) validateOneField(sv reflect.Value, st reflect.Type, idx int, m ErrorMap) error {
 	fieldDef := st.Field(idx)
+	fieldVal := sv.Field(idx)
+
+	if fieldDef.Anonymous {
+		// TODO: Support embedded pointer fields
+		return mv.validateFields(fieldVal, fieldDef.Type, m)
+	}
+
 	fname := fieldDef.Name
 	if !unicode.IsUpper(rune(fname[0])) {
 		return nil
 	}
 
-	fieldVal := sv.Field(idx)
 	// deal with pointers
 	for fieldVal.Kind() == reflect.Ptr && !fieldVal.IsNil() {
 		fieldVal = fieldVal.Elem()
