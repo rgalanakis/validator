@@ -202,54 +202,71 @@ func Validate(v interface{}) error {
 // on 'validator' tags and returns errors found indexed
 // by the field name.
 func (mv *Validator) Validate(v interface{}) error {
+	m := make(ErrorMap)
+	if err := mv.validateValue(v, m); err != nil {
+		return err
+	}
+	if len(m) > 0 {
+		return m
+	}
+	return nil
+}
+
+func (mv *Validator) validateValue(v interface{}, m ErrorMap) error {
 	sv := reflect.ValueOf(v)
 	st := reflect.TypeOf(v)
+	return mv.validateFields(sv, st, m)
+}
+
+func (mv *Validator) validateFields(sv reflect.Value, st reflect.Type, m ErrorMap) error {
 	if sv.Kind() == reflect.Ptr && !sv.IsNil() {
-		return mv.Validate(sv.Elem().Interface())
+		return mv.validateValue(sv.Elem().Interface(), m)
 	}
 	if sv.Kind() != reflect.Struct && sv.Kind() != reflect.Interface {
 		return ErrUnsupported
 	}
 
 	nfields := sv.NumField()
-	m := make(ErrorMap)
 	for i := 0; i < nfields; i++ {
-		fname := st.Field(i).Name
-		if !unicode.IsUpper(rune(fname[0])) {
-			continue
-		}
-
-		f := sv.Field(i)
-		// deal with pointers
-		for f.Kind() == reflect.Ptr && !f.IsNil() {
-			f = f.Elem()
-		}
-		tag := st.Field(i).Tag.Get(mv.tagName)
-		if tag == "-" {
-			continue
-		}
-		var errs ErrorArray
-
-		if tag != "" {
-			err := mv.Valid(f.Interface(), tag)
-			if errors, ok := err.(ErrorArray); ok {
-				errs = errors
-			} else {
-				if err != nil {
-					errs = ErrorArray{err}
-				}
-			}
-		}
-
-		mv.deepValidateCollection(f, fname, m) // no-op if field is not a struct, interface, array, slice or map
-
-		if len(errs) > 0 {
-			m[st.Field(i).Name] = errs
+		if err := mv.validateOneField(sv, st, i, m); err != nil {
+			return err
 		}
 	}
 
-	if len(m) > 0 {
-		return m
+	return nil
+}
+
+func (mv *Validator) validateOneField(sv reflect.Value, st reflect.Type, idx int, m ErrorMap) error {
+	fieldDef := st.Field(idx)
+	fname := fieldDef.Name
+	if !unicode.IsUpper(rune(fname[0])) {
+		return nil
+	}
+
+	fieldVal := sv.Field(idx)
+	// deal with pointers
+	for fieldVal.Kind() == reflect.Ptr && !fieldVal.IsNil() {
+		fieldVal = fieldVal.Elem()
+	}
+	tag := fieldDef.Tag.Get(mv.tagName)
+	if tag == "-" {
+		return nil
+	}
+	var errs ErrorArray
+
+	if tag != "" {
+		err := mv.Valid(fieldVal.Interface(), tag)
+		if errarr, ok := err.(ErrorArray); ok {
+			errs = errarr
+		} else if err != nil {
+			errs = ErrorArray{err}
+		}
+	}
+
+	mv.deepValidateCollection(fieldVal, fname, m) // no-op if field is not a struct, interface, array, slice or map
+
+	if len(errs) > 0 {
+		m[fname] = errs
 	}
 	return nil
 }
