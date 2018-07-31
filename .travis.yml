@@ -3,7 +3,7 @@ go:
   - 1.5
   - 1.6
   - 1.7
-go_import_path: gopkg.in/validator.v2
+go_import_path: github.com/rgalanakis/validator
 script:
   - go test -race -v -bench=.
 notifications:
